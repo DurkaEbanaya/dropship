@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Dropship
+Comment=Overwatch server selector (native Linux)
+Exec=dropship
+Icon=dropship
+Terminal=false
+Categories=Game;
+StartupWMClass=dropship

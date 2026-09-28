@@ -18,7 +18,10 @@ pub const INTERVAL_PROCESS_CHECK: Duration = Duration::from_millis(900);
 pub const DROPSHIP_API_URL: &str = "https://stowmyy.github.io/dropship/ips.json";
 
 pub const UPDATE_URI: &str = "https://api.github.com/repos/stowmyy/dropship/releases/latest";
-pub const GITHUB_URI: &str = "https://github.com/stowmyy/dropship";
+pub const GITHUB_URI: &str = "https://github.com/DurkaEbanaya/dropship";
+#[cfg(target_os = "windows")]
 pub const BINARY_NAME: &str = "dropship.exe";
+#[cfg(target_os = "linux")]
+pub const BINARY_NAME: &str = "dropship";
 
 pub const DISCORD_INVITE_LINK: &str = "https://discord.gg/QYrF8CVhbC";

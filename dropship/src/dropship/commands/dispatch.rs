@@ -14,7 +14,7 @@ pub fn start_processing_commands(
     events_tx: UnboundedSender<Event>,
     ctx: Option<egui::Context>,
     //
-    wfp_connection: Arc<Mutex<Option<firewall::win::WfpConnection>>>,
+    wfp_connection: Arc<Mutex<Option<firewall::Connection>>>,
 ) {
     tokio::spawn(background_task(commands_rx, events_tx, ctx, wfp_connection));
 }
@@ -24,7 +24,7 @@ async fn background_task(
     events_tx: UnboundedSender<Event>,
     ctx: Option<egui::Context>,
     //
-    wfp_connection: Arc<Mutex<Option<firewall::win::WfpConnection>>>,
+    wfp_connection: Arc<Mutex<Option<firewall::Connection>>>,
 ) {
     // i could move immediate startup work here
 
@@ -171,12 +171,12 @@ async fn background_task(
                 let _ = events_tx.send(Event::DropshipLoadingStateChange(true));
 
                 let wfp_connection = wfp_connection.clone();
-                tokio::spawn(async move {
-                    let mut guard = wfp_connection.lock().await;
+                let task = tokio::task::spawn_blocking(move || {
+                    let mut guard = wfp_connection.blocking_lock();
 
                     match &mut *guard {
                         Some(wfp_connection) => {
-                            match firewall::win::apply_blocked_ips_wfp(
+                            match firewall::apply_blocked_ips(
                                 wfp_connection,
                                 &blocked_servers,
                                 &already_known_paths,
@@ -207,13 +207,17 @@ async fn background_task(
                         }
                         None => {
                             log::error!(
-                                "cannot block servers because wfp connection is not available"
+                                "cannot block servers because the firewall backend is not available"
                             );
                         }
                     }
 
                     let _ = events_tx.send(Event::DropshipLoadingStateChange(false));
                 });
+                // Preserve selection order while authorization / firewall transactions run.
+                if let Err(e) = task.await {
+                    log::error!("firewall task failed: {e}");
+                }
             }
 
             Command::ForceApplyFirewallRequested => {

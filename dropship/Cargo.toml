@@ -12,6 +12,8 @@ eframe = { version = "0.36.1", default-features = false, features = [
     # "default_fonts",
     "glow",
     "persistence",
+    "wayland",
+    "x11",
 ] }
 reqwest = { version = "0.13.4", features = ["json"] }
 serde = { version = "1.0.228", features = ["derive"] }
@@ -19,8 +21,6 @@ serde_json = { version = "1.0.150" }
 egui_extras = { version = "0.36.1", features = ["image", "svg"] }
 image = { version = "0.25.10", features = ["png"] }
 # dotenvy = { version = "0.15.7", default-features = false }
-surge-ping = { version = "0.9.0" }
-rand = { version = "0.10.1" }
 tokio = { version = "1", features = [
     "time",
     "rt-multi-thread",
@@ -36,8 +36,6 @@ chrono-humanize = { version = "0.2.3" }
 anyhow = { version = "1.0.103" }
 # thiserror = { version = "2.0.18" }
 strum = { version = "0.28.0", features = ["derive"] }
-rfd = { version = "0.17.2" }
-wfp = { version = "0.2.0" }
 ipnet = { version = "2.12.1" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -59,6 +57,10 @@ chrono = { version = "0.4", default-features = false, features = [
 embed-resource = "3.0.11"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+surge-ping = { version = "0.9.0" }
+rand = { version = "0.10.1" }
+rfd = { version = "0.17.2" }
+wfp = { version = "0.2.0" }
 # windows_firewall = "0.8.0"
 # REVIEW
 windows = { version = "0.62.2", features = [

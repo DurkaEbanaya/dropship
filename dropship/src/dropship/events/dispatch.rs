@@ -157,7 +157,7 @@ fn task(
                     for p in &paths {
                         known_paths.insert(p.to_owned());
                     }
-                } else {
+                } else if cfg!(target_os = "windows") {
                     log::warn!(
                         "no games have been added to dropship. please add a game executable"
                     );
@@ -170,6 +170,7 @@ fn task(
 
                 // the first time we apply rules, do cleanup on non-dropship rules
                 // we do this after since we possibly grab some paths from those
+                #[cfg(target_os = "windows")]
                 if !app.legacy_cleanup_done {
                     tokio::task::spawn_blocking(move || {
                         match crate::firewall::legacy::delete_legacy_rules() {

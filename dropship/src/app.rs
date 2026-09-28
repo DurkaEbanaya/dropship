@@ -117,6 +117,7 @@ pub struct TemplateApp {
     tab: usize,
     pub(crate) loading: bool,
     pub(crate) pending_firewall_sync_when_game_is_closed: bool,
+    #[cfg(target_os = "windows")]
     pub(crate) legacy_cleanup_done: bool,
     // pub(crate) cached_lowest_ping_server: Option<KnownServer>,
     prev_system_theme: Option<egui::Theme>, //
@@ -126,7 +127,7 @@ pub struct TemplateApp {
     pub(crate) denied_paths: HashSet<PathBuf>,
 
     //
-    wfp_connection: Arc<Mutex<Option<firewall::win::WfpConnection>>>,
+    wfp_connection: Arc<Mutex<Option<firewall::Connection>>>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Default, Clone)]
@@ -222,6 +223,7 @@ impl TemplateApp {
             tab: 0,
             loading: false,
             pending_firewall_sync_when_game_is_closed: false,
+            #[cfg(target_os = "windows")]
             legacy_cleanup_done: false,
             // cached_lowest_ping_server: None,
             prev_system_theme: cc.egui_ctx.system_theme(),
@@ -323,44 +325,18 @@ impl TemplateApp {
         let dynamic = self.config.wfp_dynamic_session;
         let commands_tx = self.commands_tx.clone();
 
-        // tokio::task::spawn_blocking(move || {
-        tokio::spawn(async move {
-            //
-            // wipe persistent filters for safety when in dynamic mode
-            if dynamic {
-                match firewall::win::WfpConnection::new(true) {
-                    Ok(mut w) => {
-                        match (|| -> std::io::Result<()> {
-                            let transaction = wfp::Transaction::new(&mut w.handle)?;
-                            firewall::win::delete_dropship_wfp(&transaction)?;
-                            transaction.commit()?;
-                            Ok(())
-                        })() {
-                            Ok(_) => {}
-                            Err(e) => {
-                                log::error!("failed clean persistent wfp data, {}", e.to_string());
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        log::error!(
-                            "failed establish wfp connection to clean persistent wfp data, {}",
-                            e.to_string()
-                        );
-                    }
-                }
-            }
-
-            let mut guard = wfp_connection.lock().await;
-
+        tokio::task::spawn_blocking(move || {
+            let mut guard = wfp_connection.blocking_lock();
+            // Close the previous dynamic session before establishing its replacement.
+            *guard = None;
             *guard = {
-                match firewall::win::WfpConnection::new(!dynamic) {
+                match firewall::connect(!dynamic) {
                     Ok(w) => {
-                        log::debug!("connected to wfp. dynamic: {dynamic}");
+                        log::debug!("connected to firewall backend. dynamic: {dynamic}");
                         Some(w)
                     }
                     Err(e) => {
-                        log::error!("failed to create wfp connection ({})", e.to_string());
+                        log::error!("failed to initialize firewall backend ({})", e.to_string());
                         None
                     }
                 }
@@ -818,6 +794,9 @@ impl TemplateApp {
     }
 
     pub fn _force_apply_blocked_servers_to_firewall(&mut self) {
+        if self.known_servers().is_empty() && self.config.desired_blocked_servers.bits() != 0 {
+            return; // wait for the API/cache before replacing existing persistent rules
+        }
         Self::_apply_blocked_servers_to_firewall(
             &self.config.desired_blocked_servers,
             self.known_servers(),
@@ -991,6 +970,13 @@ impl TemplateApp {
     }
 
     fn applications(&mut self, ui: &mut egui::Ui) {
+        #[cfg(target_os = "linux")]
+        {
+            ui.label("Linux / Proton: game paths are not required.");
+            ui.label("Blocks affect this user's UDP traffic on ports 12000–64000 to the selected server networks.");
+            return;
+        }
+        #[cfg(target_os = "windows")]
         egui::Frame::group(ui.style()).show(ui, |ui| {
             //
 
@@ -1091,6 +1077,7 @@ impl TemplateApp {
         });
 
         // path delegator
+        #[cfg(target_os = "windows")]
         if let Some(path) = &self.modal_manage_path {
             let mut should_close = false;
 
@@ -1127,6 +1114,7 @@ impl TemplateApp {
 
                         if button.clicked() {
                             known_paths.remove(path);
+                            #[cfg(target_os = "windows")]
                             match firewall::get_dropship_rule(path) {
                                 Ok(rule) => {
                                     if let Some(rule) = rule {
@@ -1444,7 +1432,7 @@ impl TemplateApp {
 
                 ui.add(egui::Label::new(&record.message).wrap())
                     .on_hover_ui_at_pointer(|ui| {
-                        ui.label(format!("thread #{}", record.thread_id.as_u64().get()));
+                        ui.label(format!("thread {:?}", record.thread_id));
                         ui.add(
                             egui::Label::new(
                                 chrono_humanize::HumanTime::from(record.time)
@@ -1631,9 +1619,12 @@ impl TemplateApp {
                                 }
                             }
 
+                            #[cfg(target_os = "windows")]
                             if let Err(e) = firewall::delete_dropship_rules() {
                                 log::error!("{}", e);
                             }
+
+                            self.apply_wfp_session();
 
                             let _ = self
                                 .commands_tx
@@ -1647,7 +1638,7 @@ impl TemplateApp {
                         }
                     }
 
-                    ui.separator();
+                    #[cfg(target_os = "windows")]
                     if ui
                         .link("click to reset windows firewall to factory defaults")
                         .clicked()
@@ -1662,7 +1653,7 @@ impl TemplateApp {
                         }
                     }
 
-                    ui.separator();
+                    #[cfg(target_os = "windows")]
                     if ui.link("click to flush windows dns").clicked() {
                         unsafe { firewall::win::flush_dns() };
                     }
@@ -1797,6 +1788,8 @@ impl TemplateApp {
                     ui.indent("xd4", |ui| {
                         ui.label("• you do not need to keep dropship open");
                         ui.label("• blocks persist until you undo them");
+                        #[cfg(target_os = "linux")]
+                        ui.label("• Linux filters this user's UDP game traffic (ports 12000–64000), not individual executables");
                     });
                 }
                 _ => {

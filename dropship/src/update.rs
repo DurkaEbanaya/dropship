@@ -40,6 +40,10 @@ pub struct AssetMetadata {
 }
 
 pub async fn check_for_update() -> Result<UpdateInfo, String> {
+    // Linux installs include a privileged helper: update them together with install.sh / RPM.
+    if cfg!(target_os = "linux") {
+        return Ok(UpdateInfo::NoUpdate);
+    }
     let client = reqwest::Client::builder()
         .user_agent("dropship-update")
         .build()

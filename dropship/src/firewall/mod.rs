@@ -1,16 +1,40 @@
 #[cfg(target_os = "windows")]
 use std::path::PathBuf;
 
+#[cfg(target_os = "windows")]
 pub mod win;
+
+#[cfg(target_os = "linux")]
+pub mod linux;
+
+#[cfg(target_os = "linux")]
+pub use linux::{Connection, apply_blocked_ips};
+#[cfg(target_os = "windows")]
+pub use win::{WfpConnection as Connection, apply_blocked_ips_wfp as apply_blocked_ips};
+
+/// Initialize the backend, clearing Windows persistent filters before a dynamic session.
+pub fn connect(persistent: bool) -> std::io::Result<Connection> {
+    #[cfg(target_os = "windows")]
+    if !persistent {
+        let mut previous = Connection::new(true)?;
+        let transaction = wfp::Transaction::new(&mut previous.handle)?;
+        win::delete_dropship_wfp(&transaction)?;
+        transaction.commit()?;
+    }
+    Connection::new(persistent)
+}
 
 // handles previous versions of dropship
 // also handles uninstalling mina
+#[cfg(target_os = "windows")]
 pub mod legacy;
 
 pub mod applications;
 
+#[cfg(target_os = "windows")]
 pub const DROPSHIP_GROUP_NAME: &str = "stormy/dropship/v3";
 // pub const DROPSHIP_RULE_NAME: &str = "dropship/overwatch";
+#[cfg(target_os = "windows")]
 const OVERWATCH_RULE_NAME: &str = "Overwatch Application";
 // const OVERWATCH_RULE_DESCRIPTION: &str = "Overwatch Application";
 

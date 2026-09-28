@@ -1,0 +1,294 @@
+#!/usr/bin/python3 -I
+"""Narrow root helper: validated CIDRs -> per-user nftables / iptables rules.
+
+The GUI communicates using JSON lines over stdin/stdout. No user-supplied nft
+syntax, paths, commands, UIDs or shell expressions are accepted in requests.
+"""
+import ipaddress
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import fcntl
+
+NFT = "/usr/sbin/nft"
+IPTABLES = {4: "/usr/sbin/iptables", 6: "/usr/sbin/ip6tables"}
+RESTORE = {4: "/usr/sbin/iptables-restore", 6: "/usr/sbin/ip6tables-restore"}
+CONFIG = Path("/etc/dropship/firewall.json")
+STATE = Path("/var/lib/dropship")
+MAX_LINE = 262144
+MAX_NETWORKS = 4096
+
+
+def validate_request(request):
+    if not isinstance(request, dict) or set(request) != {"networks", "persistent"}:
+        raise ValueError("expected only networks and persistent")
+    if type(request["persistent"]) is not bool:
+        raise ValueError("persistent must be a boolean")
+    raw = request["networks"]
+    if not isinstance(raw, list) or len(raw) > MAX_NETWORKS:
+        raise ValueError("invalid network list size")
+    networks = set()
+    for value in raw:
+        if not isinstance(value, str) or len(value) > 80:
+            raise ValueError("invalid network value")
+        network = ipaddress.ip_network(value, strict=False)
+        if network.prefixlen == 0:
+            raise ValueError("default-route blocks are not allowed")
+        networks.add(network)
+    return sorted(networks, key=lambda n: (n.version, int(n.network_address), n.prefixlen))
+
+
+def validate_uid(uid):
+    if type(uid) is not int or not 0 < uid < 2**32 - 1:
+        raise ValueError("invalid user ID")
+
+
+def ruleset(uid, networks):
+    validate_uid(uid)
+    table = f"dropship_{uid}"
+    lines = [f"destroy table inet {table}"]
+    if not networks:
+        return "\n".join(lines) + "\n"
+    lines += [f"table inet {table} {{"]
+    for version, name, addr_type in [(4, "blocked4", "ipv4_addr"), (6, "blocked6", "ipv6_addr")]:
+        family = [str(n) for n in networks if n.version == version]
+        if family:
+            lines += [f"  set {name} {{", f"    type {addr_type}",
+                      "    flags interval", "    auto-merge",
+                      f"    elements = {{ {', '.join(family)} }}", "  }"]
+    lines += ["  chain output {", "    type filter hook output priority -10; policy accept;"]
+    for version, name, family in [(4, "blocked4", "ip"), (6, "blocked6", "ip6")]:
+        if any(n.version == version for n in networks):
+            lines += [f"    meta skuid {uid} {family} daddr @{name} udp dport 12000-64000 counter reject"]
+    return "\n".join(lines + ["  }", "}", ""])
+
+
+def apply_nft(uid, networks):
+    result = subprocess.run([NFT, "-f", "-"], input=ruleset(uid, networks),
+                            text=True, capture_output=True, timeout=15, check=False)
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or "nftables failed")
+
+
+def select_backend():
+    config = json.loads(CONFIG.read_text()) if CONFIG.exists() else {"backend": "auto"}
+    if not isinstance(config, dict) or set(config) != {"backend"} or config["backend"] not in ("auto", "nftables", "iptables"):
+        raise ValueError("/etc/dropship/firewall.json must contain backend: auto, nftables or iptables")
+    available_nft = os.access(NFT, os.X_OK)
+    available_iptables = all(os.access(path, os.X_OK) for path in [*IPTABLES.values(), *RESTORE.values()])
+    backend = config["backend"]
+    if backend == "auto":
+        backend = "nftables" if available_nft else "iptables"
+    if not (available_nft if backend == "nftables" else available_iptables):
+        raise RuntimeError(f"{backend} tools are missing; install nftables or iptables (including ip6tables)")
+    return backend
+
+
+def iptables_snapshot(uid, version):
+    validate_uid(uid)
+    tool = IPTABLES[version]
+    chain = f"DSHIP_{uid}"
+    hook = ["-m", "owner", "--uid-owner", str(uid), "-p", "udp", "--dport", "12000:64000", "-j", chain]
+    # Check the table separately: a missing chain is normal, a broken tool is not.
+    result = subprocess.run([tool, "--wait", "10", "-S", "OUTPUT"], text=True, capture_output=True, timeout=15)
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or "cannot inspect iptables OUTPUT")
+    result = subprocess.run([tool, "--wait", "10", "-S", chain], text=True, capture_output=True, timeout=15)
+    if result.returncode not in (0, 1):
+        raise RuntimeError(result.stderr.strip() or "cannot inspect Dropship chain")
+    exists = result.returncode == 0
+    rules = [line for line in result.stdout.splitlines() if line.startswith(f"-A {chain} ")]
+    if not exists:
+        return {"exists": False, "rules": [], "hook": hook, "attached": False}
+    check = subprocess.run([tool, "--wait", "10", "-C", "OUTPUT", *hook], text=True, capture_output=True, timeout=15)
+    if check.returncode not in (0, 1):
+        raise RuntimeError(check.stderr.strip() or "cannot inspect Dropship jump")
+    return {"exists": exists, "rules": rules, "hook": hook, "attached": check.returncode == 0}
+
+
+def write_iptables(uid, version, desired, current):
+    """Atomic transaction in one address family, touching only our chain/jump."""
+    chain = f"DSHIP_{uid}"
+    lines = ["*filter"]
+    if desired["exists"]:
+        lines += [f":{chain} - [0:0]", f"-F {chain}", *desired["rules"]]
+    if current["attached"] and not desired["attached"]:
+        lines += ["-D OUTPUT " + " ".join(current["hook"])]
+    elif desired["attached"] and not current["attached"]:
+        lines += ["-I OUTPUT 1 " + " ".join(desired["hook"])]
+    if current["exists"] and not desired["exists"]:
+        lines += [f"-F {chain}", f"-X {chain}"]
+    result = subprocess.run([RESTORE[version], "--noflush", "--wait", "10"],
+                            input="\n".join(lines + ["COMMIT", ""]), text=True,
+                            capture_output=True, timeout=15)
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip() or f"IPv{version} iptables transaction failed")
+
+
+def apply_iptables(uid, networks):
+    validate_uid(uid)
+    previous = {version: iptables_snapshot(uid, version) for version in (4, 6)}
+    applied = []
+    try:
+        for version in (4, 6):
+            family = list(ipaddress.collapse_addresses(n for n in networks if n.version == version))
+            desired = {**previous[version], "exists": bool(family), "attached": bool(family),
+                       "rules": [f"-A DSHIP_{uid} -d {n} -j REJECT" for n in family]}
+            write_iptables(uid, version, desired, previous[version])
+            applied.append(version)
+    except Exception:
+        # iptables cannot commit IPv4 and IPv6 together. Undo completed families
+        # if the second transaction fails; unrelated rules are never restored.
+        for version in reversed(applied):
+            write_iptables(uid, version, previous[version], iptables_snapshot(uid, version))
+        raise
+
+
+def apply_backend(backend, uid, networks):
+    if backend == "nftables":
+        apply_nft(uid, networks)
+    elif backend == "iptables":
+        apply_iptables(uid, networks)
+    else:
+        raise ValueError("invalid saved firewall backend")
+
+
+def read_state(path):
+    data = json.loads(path.read_text())
+    backend = data.pop("backend", "nftables")  # migrate the first Linux format
+    if backend not in ("nftables", "iptables"):
+        raise ValueError("invalid saved firewall backend")
+    return backend, validate_request(data), data["persistent"]
+
+
+def save_state(uid, networks, persistent, backend="nftables", runtime=False):
+    validate_uid(uid)
+    path = STATE / f"{uid}.json"
+    if runtime:
+        path = STATE / f"{uid}.runtime.json"
+    if (not runtime and not persistent) or not networks:
+        path.unlink(missing_ok=True)
+        return
+    data = {"networks": [str(n) for n in networks], "persistent": persistent, "backend": backend}
+    fd, temporary = tempfile.mkstemp(prefix=".state-", dir=STATE)
+    try:
+        with os.fdopen(fd, "w") as output:
+            json.dump(data, output)
+            output.flush()
+            os.fsync(output.fileno())
+            os.fchmod(output.fileno(), 0o644)
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def restore():
+    for path in sorted(STATE.glob("*.json")):
+        if not path.stem.isdecimal():
+            continue  # runtime-only rules must not be restored at boot
+        uid = int(path.stem)
+        with (STATE / f"{uid}.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            backend, networks, persistent = read_state(path)
+            if persistent:
+                apply_backend(backend, uid, networks)
+                save_state(uid, networks, True, backend, runtime=True)
+
+
+def clear(uid):
+    validate_uid(uid)
+    with (STATE / f"{uid}.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        clear_rules(uid)
+
+
+def clear_rules(uid):
+    # Runtime and persistent markers can reference different backends if a
+    # migration was interrupted. Do not invoke unrelated legacy tools/modules.
+    backends = set()
+    for suffix in ("json", "runtime.json"):
+        path = STATE / f"{uid}.{suffix}"
+        if path.exists():
+            backends.add(read_state(path)[0])
+    if not backends:
+        backends.add(select_backend())
+    for backend in sorted(backends):
+        apply_backend(backend, uid, [])
+    for suffix in ("json", "runtime.json"):
+        (STATE / f"{uid}.{suffix}").unlink(missing_ok=True)
+
+
+def serve(uid):
+    # Serialize helpers for this UID, including EOF cleanup and boot restoration.
+    with (STATE / f"{uid}.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        backend = select_backend()
+        dynamic = False
+        previous_path = STATE / f"{uid}.runtime.json"
+        if not previous_path.exists():
+            previous_path = STATE / f"{uid}.json"
+        previous_backend, previous, previous_persistent = read_state(previous_path) if previous_path.exists() else (backend, [], False)
+        try:
+            while True:
+                line = sys.stdin.readline(MAX_LINE + 1)
+                if not line:
+                    break
+                if len(line) > MAX_LINE:
+                    raise ValueError("request is too large")
+                try:
+                    request = json.loads(line)
+                    networks = validate_request(request)
+                    apply_backend(backend, uid, networks)
+                    try:
+                        if previous_backend != backend:
+                            apply_backend(previous_backend, uid, [])
+                        save_state(uid, networks, request["persistent"], backend, runtime=True)
+                        save_state(uid, networks, request["persistent"], backend)
+                    except Exception:
+                        if previous_backend != backend:
+                            apply_backend(backend, uid, [])
+                        apply_backend(previous_backend, uid, previous)
+                        save_state(uid, previous, previous_persistent, previous_backend, runtime=True)
+                        raise
+                    previous_backend, previous, previous_persistent = backend, networks, request["persistent"]
+                    dynamic = not request["persistent"]
+                    response = {"ok": True, "backend": backend}
+                except Exception as error:
+                    response = {"ok": False, "error": str(error)}
+                print(json.dumps(response), flush=True)
+        finally:
+            if dynamic:
+                apply_backend(backend, uid, [])
+                save_state(uid, [], False, backend, runtime=True)
+
+
+def main():
+    if os.geteuid() != 0:
+        raise PermissionError("run this helper through pkexec")
+    os.umask(0o077)
+    STATE.mkdir(mode=0o755, parents=True, exist_ok=True)
+    STATE.chmod(0o755)
+    if sys.argv[1:] and "PKEXEC_UID" in os.environ:
+        raise PermissionError("pkexec only authorizes changing the calling user's blocks")
+    if sys.argv[1:] == ["--restore"]:
+        restore()
+    elif len(sys.argv) == 3 and sys.argv[1] == "--clear-user":
+        clear(int(sys.argv[2]))
+    elif sys.argv[1:]:
+        raise ValueError("unexpected arguments")
+    else:
+        uid = int(os.environ.get("PKEXEC_UID", os.environ.get("SUDO_UID", "0")))
+        if not 0 < uid < 2**32 - 1:
+            raise ValueError("missing unprivileged caller UID")
+        serve(uid)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:
+        print(json.dumps({"ok": False, "error": str(error)}), flush=True)
+        sys.exit(1)

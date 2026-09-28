@@ -1,5 +1,17 @@
 
-# dropship v3
+# dropship v3 — Linux / openSUSE fork
+
+Native Linux port of [stowmyy/dropship](https://github.com/stowmyy/dropship),
+with Wayland/X11, Steam/Proton and Wine process detection, and per-user
+nftables and iptables/ip6tables backends.
+
+**[Linux build, install and usage instructions](docs/linux.md)** — includes
+openSUSE Tumbleweed dependencies, an installer, RPM packaging and firewall tests.
+Linux blocks selected server networks for the user's UDP game traffic rather
+than filtering by Windows executable path. Start the Linux binary directly.
+
+The upstream Windows documentation is retained below. Its `.exe` download and
+Windows self-updater are not Linux builds.
 
 <!--
 ```ruby
@@ -60,5 +72,3 @@ i want a feature | suggestions are welcome in the discord. please don't contribu
 | expanded | collapsed |
 | -- | -- |
 | <img width="1511" height="1060" alt="image" src="https://github.com/user-attachments/assets/df7b7ebc-ecc2-472a-b3ab-4dbf0d3cc6d8" /> | <img width="484" height="1063" alt="image" src="https://github.com/user-attachments/assets/9b246ae8-3112-40ee-b0fa-2c1118197f92" /> |
-
-

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN" "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Dropship Linux</vendor>
+  <vendor_url>https://github.com/DurkaEbanaya/dropship</vendor_url>
+  <action id="io.github.durkaebanaya.dropship.firewall">
+    <description>Change Dropship server blocks</description>
+    <message>Authentication is required to change Dropship server blocks for your user.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/dropship-firewall</annotate>
+  </action>
+</policyconfig>
