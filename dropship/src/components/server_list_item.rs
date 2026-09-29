@@ -190,10 +190,8 @@ pub fn server_list_item(
 
             ui.style_mut().interaction.selectable_labels = false;
 
-            // let text = if pending { "pending" } else { &server.title };
-            let text = &server.title;
-
-            let button = ui.add(egui::Button::new(text).min_size(egui::vec2(
+            // Draw the title and ping ourselves so they fit even in mini mode.
+            let button = ui.add(egui::Button::new("").min_size(egui::vec2(
                 ui.available_width(),
                 ui.spacing().interact_size.y,
             )));
@@ -229,28 +227,32 @@ pub fn server_list_item(
                 }
 
                 {
-                    let (icon, _tooltip, tint) = {
+                    let (icon, text, tooltip, tint) = {
                         match pings.get(&server.ping) {
                             // ping ok
                             Some(Ok(ms)) => (
                                 Some(crate::ping_icon::ping_icon(*ms)),
-                                format!("{ms:.0}ms"),
+                                format!("{ms:.0} ms"),
+                                format!(
+                                    "Average ICMP ping to {} (4 probes).\nRegional estimate; in-game latency may differ.",
+                                    server.ping
+                                ),
                                 None,
                             ),
 
                             // ping error
                             Some(Err(e)) => (
-                                // Some(crate::ping_icon::ping_icon(f32::NAN)),
                                 None,
-                                e.clone(),
-                                // Some(ui.visuals().error_fg_color),
-                                None,
+                                "n/a".to_string(),
+                                format!("Ping to {} unavailable: {e}", server.ping),
+                                Some(ui.visuals().weak_text_color()),
                             ),
 
                             // ping pending
                             None => (
                                 Some(crate::ping_icon::ping_icon_cycle(ui.time())),
-                                "pinging".to_string(),
+                                "... ms".to_string(),
+                                format!("Measuring ICMP ping to {}...", server.ping),
                                 Some(ui.visuals().weak_text_color()),
                             ),
                         }
@@ -258,37 +260,27 @@ pub fn server_list_item(
 
                     let tag_color = tint.unwrap_or(ui.style().visuals.text_color());
 
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                        let _icon = if let Some(icon) = icon {
-                            Some(
-                                ui.add(
-                                    egui::Image::new(icon)
-                                        .tint(tag_color)
-                                        .fit_to_exact_size(egui::vec2(16.0, 16.0)),
-                                ),
-                            )
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let label = ui.add(
+                            egui::Label::new(egui::RichText::new(text).color(tag_color))
+                                .wrap_mode(egui::TextWrapMode::Extend),
+                        );
+                        let tag = if let Some(icon) = icon {
+                            label.union(ui.add(
+                                egui::Image::new(icon)
+                                    .tint(tag_color)
+                                    .fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                            ))
                         } else {
-                            None
+                            label
                         };
+                        tag.on_hover_text_at_pointer(tooltip);
 
-                        ui.add_space(4.);
-
-                        {
-                            // let label = ui.colored_label(
-                            //     tag_color,
-                            //     server.token.to_ascii_lowercase(), // .to_ascii_uppercase()
-                            // );
-
-                            // // ping
-
-                            // if let Some(icon) = icon {
-                            //     icon.union(label);
-                            // }
-                        }
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.add(egui::Label::new(&server.title).truncate())
+                                .on_hover_text_at_pointer(&server.title);
+                        });
                     });
-
-                    // testing
-                    // tag.response.on_hover_text_at_pointer(tooltip);
                 }
             });
         });

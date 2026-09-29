@@ -51,6 +51,12 @@ builds and have not been verified with this Tumbleweed binary.
 Adding an `.exe` is unnecessary on Linux. The application watches process names
 and command-line basenames to recognize `Overwatch.exe` under Wine/Proton.
 
+Each server row shows its average ping in milliseconds alongside the signal
+icon. `... ms` means measurement is in progress; `n/a` means the test failed
+(hover for details). This is the average of four ICMP probes to the region's
+test IP, measured when the application opens or discovers a new test IP. It is
+an estimate, not live in-game latency. Linux uses `/usr/bin/ping` from `iputils`.
+
 ## Firewall behavior
 
 The root-owned `/etc/dropship/firewall.json` selects the backend:

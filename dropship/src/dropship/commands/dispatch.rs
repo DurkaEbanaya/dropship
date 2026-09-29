@@ -94,10 +94,14 @@ async fn background_task(
             // want a ping estimate for ip
             Command::Ping { ref ip } => {
                 let ip = ip.clone();
+                let ctx = ctx.clone();
                 tokio::spawn(async move {
                     let pong = ping::ping_ip(&ip).await;
 
                     let _ = events_tx.send(Event::Pong { ip, pong });
+                    if let Some(ctx) = ctx {
+                        ctx.request_repaint();
+                    }
                 });
             }
 
