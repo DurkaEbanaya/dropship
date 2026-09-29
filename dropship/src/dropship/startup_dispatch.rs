@@ -1,14 +1,13 @@
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
-    app::ApiCache,
     dropship::{INTERVAL_API_CHECK, INTERVAL_PROCESS_CHECK, INTERVAL_VERSION_CHECK},
     overwatch, update,
 };
 
 use super::Command;
 
-pub fn startup_dispatch(commands_tx: &UnboundedSender<Command>, cache: &Option<ApiCache>) {
+pub fn startup_dispatch(commands_tx: &UnboundedSender<Command>) {
     // periodic version check
     {
         let commands_tx = commands_tx.clone();
@@ -37,19 +36,6 @@ pub fn startup_dispatch(commands_tx: &UnboundedSender<Command>, cache: &Option<A
                 });
             }
         });
-    }
-
-    // query ips for ping
-    {
-        let commands_tx = commands_tx.clone();
-        if let Some(cache) = &cache {
-            if let Some(cache) = &cache.cached_api_data {
-                cache.servers.overwatch.iter().for_each(|s| {
-                    let ip = s.ping.clone();
-                    let _ = commands_tx.send(Command::Ping { ip });
-                });
-            }
-        }
     }
 
     // periodic api/ips fetch

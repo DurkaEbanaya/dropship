@@ -1,6 +1,6 @@
 Name:           dropship
 Version:        3.0.6
-Release:        1
+Release:        2
 Summary:        Native Linux Overwatch server selector
 License:        GPL-3.0-only
 URL:            https://github.com/DurkaEbanaya/dropship

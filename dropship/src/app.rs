@@ -5,13 +5,14 @@ use crate::{
     firewall::{self, applications::ApplicationType},
     logger,
     overwatch::ServerSelection,
-    visuals,
+    ping, visuals,
 };
 use eframe::egui;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     path::PathBuf,
     sync::{Arc, atomic},
+    time::{Duration, Instant},
 };
 use tokio::sync::{
     Mutex,
@@ -63,6 +64,7 @@ pub struct DropshipConfig {
     starting_tab: usize,
     theme: Option<visuals::Theme>, // none is system theme
     mini: bool,
+    continuous_ping: bool,
     wfp_dynamic_session: bool, // do wfp blocks only apply when dropship is open?
     //
     disable_background_image: bool,
@@ -80,6 +82,7 @@ impl Default for DropshipConfig {
             starting_tab: 0,
             theme: None,
             mini: false,
+            continuous_ping: false,
             wfp_dynamic_session: false,
             //
             disable_background_image: false,
@@ -105,7 +108,7 @@ pub struct TemplateApp {
     // pub(crate) known_applications: Option<Vec<applications::Application>>,
     // pub(crate) known_applications: Option<HashSet<PathBuf>>,
     pub(crate) logs: Vec<logger::Message>,
-    pub(crate) pings: HashMap<String, Result<f32, String>>,
+    pub(crate) pings: ping::Measurements,
     pub(crate) update_available: Option<update::AvailableUpdate>,
 
     //
@@ -195,7 +198,7 @@ impl TemplateApp {
             wfp_connection.clone(),
         );
 
-        startup_dispatch(&commands_tx, &cache);
+        startup_dispatch(&commands_tx);
 
         let mut app = Self {
             //
@@ -211,7 +214,7 @@ impl TemplateApp {
             game_open: false,
             installing_status: update::UpdatingStatus::NotActive,
             logs: vec![],
-            pings: HashMap::new(),
+            pings: ping::Measurements::default(),
             update_available: None,
 
             //
@@ -261,6 +264,50 @@ impl TemplateApp {
             }
         }
         &[]
+    }
+
+    pub(crate) fn refresh_ping(&mut self, ip: &str) {
+        if self.pings.start(ip)
+            && self
+                .commands_tx
+                .send(dropship::Command::Ping { ip: ip.to_owned() })
+                .is_err()
+        {
+            self.pings.finish(
+                ip.to_owned(),
+                Err("ping worker unavailable".into()),
+                Instant::now(),
+            );
+        }
+    }
+
+    fn refresh_all_pings(&mut self) {
+        let ips: HashSet<_> = self
+            .known_servers()
+            .iter()
+            .map(|s| s.ping.clone())
+            .collect();
+        for ip in ips {
+            self.refresh_ping(&ip);
+        }
+    }
+
+    fn update_pings(&mut self, ctx: &egui::Context) {
+        let now = Instant::now();
+        let ips: HashSet<_> = self
+            .known_servers()
+            .iter()
+            .map(|s| s.ping.clone())
+            .collect();
+        self.pings.retain_servers(&ips);
+        for ip in &ips {
+            if self.pings.due(ip, self.config.continuous_ping, now) {
+                self.refresh_ping(ip);
+            }
+        }
+        if self.config.continuous_ping && !ips.is_empty() {
+            ctx.request_repaint_after(Duration::from_millis(250));
+        }
     }
 
     fn apply_zoom(&mut self, ui: &egui::Context, zoom: f32) {
@@ -404,6 +451,7 @@ impl eframe::App for TemplateApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // process events
         dropship::process_events(Some(ctx.clone()), self);
+        self.update_pings(ctx);
 
         // when using system theme, check for changes
         if self.config.theme.is_none()
@@ -1152,8 +1200,34 @@ impl TemplateApp {
 
     fn servers(&mut self, ui: &mut egui::Ui) {
         let mut selection_changed = false;
+        let mut refresh_requests = Vec::new();
 
         let theme = self.get_theme(ui);
+
+        let can_refresh = self
+            .known_servers()
+            .iter()
+            .any(|s| !self.pings.is_measuring(&s.ping));
+        if ui
+            .add_enabled(can_refresh, egui::Button::new("refresh all pings"))
+            .on_hover_text("Measure every server again; running measurements are not duplicated")
+            .clicked()
+        {
+            self.refresh_all_pings();
+        }
+        if ui
+            .checkbox(&mut self.config.continuous_ping, "continuous ping")
+            .on_hover_text(
+                "Repeat each measurement 5 seconds after it finishes. Saved between launches.",
+            )
+            .changed()
+        {
+            if self.config.continuous_ping {
+                self.refresh_all_pings();
+            }
+            ui.ctx().request_repaint();
+        }
+        ui.separator();
 
         {
             let mut new_blocked_servers = self.config.desired_blocked_servers.clone();
@@ -1174,6 +1248,7 @@ impl TemplateApp {
                             &mut new_blocked_servers,
                             self.config.blocked_servers,
                             &self.pings,
+                            &mut refresh_requests,
                             //
                             theme,
                         );
@@ -1189,6 +1264,9 @@ impl TemplateApp {
             }
         }
 
+        for ip in refresh_requests {
+            self.refresh_ping(&ip);
+        }
         if selection_changed {
             self.apply_blocked_servers_to_firewall();
         }

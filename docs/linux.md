@@ -31,7 +31,7 @@ To build an RPM on openSUSE after compiling:
 ```sh
 sudo zypper install rpm-build
 bash packaging/linux/package-rpm.sh
-sudo zypper --no-gpg-checks install ./dist/dropship-3.0.6-1.x86_64.rpm
+sudo zypper --no-gpg-checks install ./dist/dropship-3.0.6-2.x86_64.rpm
 ```
 
 The `dist/` directory also contains the source RPM and a complete project source
@@ -61,8 +61,18 @@ and command-line basenames to recognize `Overwatch.exe` under Wine/Proton.
 Each server row shows its average ping in milliseconds alongside the signal
 icon. `... ms` means measurement is in progress; `n/a` means the test failed
 (hover for details). This is the average of four ICMP probes to the region's
-test IP, measured when the application opens or discovers a new test IP. It is
-an estimate, not live in-game latency. Linux uses `/usr/bin/ping` from `iputils`.
+test IP. Use **refresh all pings** above the list to measure all regions again,
+or the refresh icon beside one server to measure only that region. A running
+measurement disables its refresh button; previous results remain visible with
+a spinner while being refreshed. Refresh controls do not change server blocks.
+
+Enable **continuous ping** to repeat each region's measurement five seconds
+after it completes, including retrying failed tests. Disable it to stop future
+automatic measurements; any running measurement finishes normally. The setting
+is saved between launches and works in compact mode too. Measurements also run
+once at startup and when a new test IP appears. The displayed result is a
+regional estimate, not live in-game latency. Linux uses `/usr/bin/ping` from
+`iputils`.
 
 ## Firewall behavior
 

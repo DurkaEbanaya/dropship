@@ -1,7 +1,7 @@
 use crate::app::TemplateApp;
-use crate::{overwatch, ping, update};
+use crate::{overwatch, update};
 
-use crate::dropship::{Command, Event};
+use crate::dropship::Event;
 use eframe::egui;
 
 /// this processes any pending events and their consequences
@@ -59,23 +59,6 @@ fn task(
 
             // we got the ip list back and there was no error
             Event::ApiResponse(data) => {
-                //
-                // query ping for new ips
-                {
-                    data.servers.overwatch.iter().for_each(|s| {
-                        if !&app.pings.contains_key(&s.ping) {
-                            {
-                                let ip = s.ping.clone();
-                                let _ = app.commands_tx.send(Command::Ping { ip });
-                            }
-                        }
-                    });
-
-                    if let Some(ctx) = &ctx {
-                        ctx.request_repaint_after_secs(ping::PING_TIMEOUT.as_secs_f32());
-                    }
-                }
-
                 // update cache with new server info
                 {
                     let cache = app.cache.get_or_insert_default();
@@ -88,7 +71,7 @@ fn task(
 
             // we got a ping for an ip
             Event::Pong { ip, pong } => {
-                app.pings.insert(ip, pong);
+                app.pings.finish(ip, pong, std::time::Instant::now());
             }
 
             // app is updating and the installation status changed

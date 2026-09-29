@@ -1,4 +1,10 @@
-use std::{net::IpAddr, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    net::IpAddr,
+    str::FromStr,
+    time::{Duration, Instant},
+};
+#[cfg(target_os = "windows")]
 use tokio::time;
 
 #[cfg(target_os = "windows")]
@@ -6,7 +12,51 @@ use rand::random;
 #[cfg(target_os = "windows")]
 use surge_ping::{Client, Config, ICMP, IcmpPacket, PingSequence};
 
+#[cfg(target_os = "windows")]
 pub const PING_TIMEOUT: time::Duration = time::Duration::from_secs(2);
+/// Delay after a completed measurement before trying again in continuous mode.
+pub const REFRESH_DELAY: Duration = Duration::from_secs(5);
+
+#[derive(Default)]
+pub struct Measurements {
+    results: HashMap<String, Result<f32, String>>,
+    in_flight: HashSet<String>,
+    completed_at: HashMap<String, Instant>,
+}
+
+impl Measurements {
+    pub fn get(&self, ip: &str) -> Option<&Result<f32, String>> {
+        self.results.get(ip)
+    }
+
+    pub fn is_measuring(&self, ip: &str) -> bool {
+        self.in_flight.contains(ip)
+    }
+
+    pub fn start(&mut self, ip: &str) -> bool {
+        self.in_flight.insert(ip.to_owned())
+    }
+
+    pub fn finish(&mut self, ip: String, result: Result<f32, String>, now: Instant) {
+        self.in_flight.remove(&ip);
+        self.completed_at.insert(ip.clone(), now);
+        self.results.insert(ip, result);
+    }
+
+    pub fn due(&self, ip: &str, continuous: bool, now: Instant) -> bool {
+        !self.is_measuring(ip)
+            && self.completed_at.get(ip).is_none_or(|last| {
+                continuous && now.saturating_duration_since(*last) >= REFRESH_DELAY
+            })
+    }
+
+    pub fn retain_servers(&mut self, ips: &HashSet<String>) {
+        self.results.retain(|ip, _| ips.contains(ip));
+        self.completed_at.retain(|ip, _| ips.contains(ip));
+        // Keep outstanding requests tracked until their replies arrive.
+    }
+}
+
 #[cfg(target_os = "windows")]
 const PING_INTERVAL: time::Duration = time::Duration::from_millis(900);
 
@@ -120,8 +170,48 @@ fn parse_ping_average(output: &str) -> Result<f32, String> {
         .ok_or_else(|| "could not parse ping average".to_owned())
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn refreshes_are_deduplicated_and_keep_the_previous_result() {
+        let mut pings = Measurements::default();
+        let now = Instant::now();
+        assert!(pings.due("127.0.0.1", false, now));
+        assert!(pings.start("127.0.0.1"));
+        assert!(!pings.start("127.0.0.1"));
+        assert!(!pings.due("127.0.0.1", true, now + REFRESH_DELAY));
+        pings.finish("127.0.0.1".into(), Ok(42.0), now);
+        assert!(!pings.due("127.0.0.1", false, now + REFRESH_DELAY));
+        assert!(!pings.due(
+            "127.0.0.1",
+            true,
+            now + REFRESH_DELAY - Duration::from_millis(1)
+        ));
+        assert!(pings.due("127.0.0.1", true, now + REFRESH_DELAY));
+        assert!(pings.start("127.0.0.1"));
+        assert_eq!(pings.get("127.0.0.1"), Some(&Ok(42.0)));
+    }
+
+    #[test]
+    fn errors_are_retried_only_in_continuous_mode_and_removed_servers_are_pruned() {
+        let mut pings = Measurements::default();
+        let now = Instant::now();
+        pings.start("192.0.2.1");
+        pings.finish("192.0.2.1".into(), Err("timeout".into()), now);
+        assert!(!pings.due("192.0.2.1", false, now + REFRESH_DELAY));
+        assert!(pings.due("192.0.2.1", true, now + REFRESH_DELAY));
+        pings.start("192.0.2.1");
+        pings.retain_servers(&HashSet::new());
+        assert!(pings.get("192.0.2.1").is_none());
+        assert!(!pings.due("192.0.2.1", true, now + REFRESH_DELAY));
+        pings.finish("192.0.2.1".into(), Ok(12.0), now);
+        pings.retain_servers(&HashSet::new());
+        assert!(pings.due("192.0.2.1", false, now));
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn iputils_average_and_timeout() {
         assert_eq!(

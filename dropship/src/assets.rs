@@ -18,6 +18,7 @@ pub const ICON_TERMINAL: ImageSource = egui::include_image!("../assets/icons/ico
 //     egui::include_image!("../assets/icons/icon-circle-info.svg");
 pub const ICON_STAR: ImageSource = egui::include_image!("../assets/icons/icon-star.svg");
 pub const ICON_BAN: ImageSource = egui::include_image!("../assets/icons/icon-ban.svg");
+pub const ICON_REFRESH: ImageSource = egui::include_image!("../assets/icons/icon-refresh.svg");
 pub const ICON_GEARS: ImageSource = egui::include_image!("../assets/icons/icon-gears.svg");
 pub const ICON_M1: ImageSource = egui::include_image!("../assets/icons/icon-m1.svg");
 pub const ICON_M2: ImageSource = egui::include_image!("../assets/icons/icon-m2.svg");

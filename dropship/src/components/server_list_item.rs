@@ -55,7 +55,8 @@ pub fn server_list(
     desired_blocked_servers: &mut ServerSelection,
     blocked_servers: ServerSelection,
     //
-    pings: &std::collections::HashMap<String, Result<f32, String>>,
+    pings: &crate::ping::Measurements,
+    refresh_requests: &mut Vec<String>,
     //
     theme: visuals::Theme,
 ) -> bool {
@@ -65,6 +66,24 @@ pub fn server_list(
     servers.iter().enumerate().for_each(|(i, server)| {
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // A separate hit target keeps ping refreshes from changing firewall selection.
+                let refresh = egui::Button::image(
+                    egui::Image::new(assets::ICON_REFRESH)
+                        .tint(ui.visuals().text_color())
+                        .fit_to_exact_size(egui::vec2(14.0, 14.0)),
+                )
+                .min_size(egui::vec2(24.0, 32.0));
+                if ui
+                    .add_enabled(!pings.is_measuring(&server.ping), refresh)
+                    .on_hover_text(if pings.is_measuring(&server.ping) {
+                        "Ping measurement in progress"
+                    } else {
+                        "Refresh this server's ping"
+                    })
+                    .clicked()
+                {
+                    refresh_requests.push(server.ping.clone());
+                }
                 if let Some(button) = server_list_item(
                     ui,
                     server,
@@ -134,7 +153,7 @@ pub fn server_list_item(
     is_blocked: bool,
     i: usize,
     //
-    pings: &std::collections::HashMap<String, Result<f32, String>>,
+    pings: &crate::ping::Measurements,
     //
     theme: visuals::Theme,
 ) -> Option<egui::Response> {
@@ -227,7 +246,7 @@ pub fn server_list_item(
                 }
 
                 {
-                    let (icon, text, tooltip, tint) = {
+                    let (icon, text, mut tooltip, tint) = {
                         match pings.get(&server.ping) {
                             // ping ok
                             Some(Ok(ms)) => (
@@ -257,6 +276,9 @@ pub fn server_list_item(
                             ),
                         }
                     };
+                    if pings.is_measuring(&server.ping) && pings.get(&server.ping).is_some() {
+                        tooltip.push_str("\nRefreshing; showing the previous measurement.");
+                    }
 
                     let tag_color = tint.unwrap_or(ui.style().visuals.text_color());
 
@@ -265,7 +287,9 @@ pub fn server_list_item(
                             egui::Label::new(egui::RichText::new(text).color(tag_color))
                                 .wrap_mode(egui::TextWrapMode::Extend),
                         );
-                        let tag = if let Some(icon) = icon {
+                        let tag = if pings.is_measuring(&server.ping) {
+                            label.union(ui.add(egui::Spinner::new().size(16.0)))
+                        } else if let Some(icon) = icon {
                             label.union(ui.add(
                                 egui::Image::new(icon)
                                     .tint(tag_color)
