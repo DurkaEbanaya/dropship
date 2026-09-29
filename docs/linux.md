@@ -31,13 +31,20 @@ To build an RPM on openSUSE after compiling:
 ```sh
 sudo zypper install rpm-build
 bash packaging/linux/package-rpm.sh
-sudo zypper install ./dist/dropship-3.0.6-1.x86_64.rpm
+sudo zypper --no-gpg-checks install ./dist/dropship-3.0.6-1.x86_64.rpm
 ```
 
 The `dist/` directory also contains the source RPM and a complete project source
 bundle with the compiled binary. Build this RPM on the target distribution;
 the binary links against its glibc. Leap and other distributions need their own
 builds and have not been verified with this Tumbleweed binary.
+
+Locally built RPMs are unsigned. Discover/PackageKit on openSUSE can reject them
+with `Internal error: Installation has been aborted as directed.` Its backend
+log (`/var/log/pk_backend_zypp`) reports `Signature verification failed` and
+`File is unsigned`. Use the terminal command above for this locally built RPM;
+`--no-gpg-checks` applies to that invocation, without changing system settings.
+After installation, launch `dropship` as your normal user.
 
 ## Use
 
