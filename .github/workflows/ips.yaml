@@ -13,6 +13,8 @@ permissions:
 
 jobs:
   generate-and-deploy-ips:
+    # Forks consume the upstream IP endpoint and need no separate Pages deployment.
+    if: github.repository == 'stowmyy/dropship'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
