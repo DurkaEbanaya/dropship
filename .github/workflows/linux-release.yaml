@@ -32,7 +32,7 @@ jobs:
           dpkg-deb --contents dist/*.deb
           rpm -qpi dist/*.x86_64.rpm
           rpm -qpl dist/*.x86_64.rpm
-          rpmspec -P packaging/linux/dropship.spec | grep 'Requires: *python3$'
+          rpmspec -P --define 'dropship_distro fedora' packaging/linux/dropship.spec | grep 'Requires: *python3$'
           dpkg-deb --extract dist/*.deb /tmp/dropship-deb-check
           test -x /tmp/dropship-deb-check/usr/libexec/dropship-firewall
           test -f /tmp/dropship-deb-check/usr/lib/systemd/system/dropship-restore.service
@@ -84,8 +84,8 @@ jobs:
           path: dist
       - name: Validate RPM dependencies on openSUSE
         run: |
-          rpm -qpR dist/dropship-*.x86_64.rpm
-          zypper --non-interactive --no-gpg-checks install --dry-run --no-recommends "$(pwd)/dist/dropship-3.0.6-3.x86_64.rpm"
+          rpm -qpR dist/dropship-*.suse.x86_64.rpm
+          zypper --non-interactive --no-gpg-checks install --dry-run --no-recommends "$(pwd)/dist/dropship-3.0.6-3.suse.x86_64.rpm"
 
   fedora:
     needs: packages
@@ -100,8 +100,8 @@ jobs:
           path: dist
       - name: Validate RPM dependencies on Fedora
         run: |
-          rpm -qpR dist/dropship-*.x86_64.rpm
-          dnf install -y "$(pwd)/dist/dropship-3.0.6-3.x86_64.rpm"
+          rpm -qpR dist/dropship-*.fc.x86_64.rpm
+          dnf install -y "$(pwd)/dist/dropship-3.0.6-3.fc.x86_64.rpm"
 
   release:
     if: startsWith(github.ref, 'refs/tags/linux-v')

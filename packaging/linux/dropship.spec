@@ -1,6 +1,10 @@
 Name:           dropship
 Version:        3.0.6
-Release:        3
+%if "%{?dropship_distro}" == "fedora"
+Release:        3.fc
+%else
+Release:        3.suse
+%endif
 Summary:        Native Linux Overwatch server selector
 License:        GPL-3.0-only
 URL:            https://github.com/DurkaEbanaya/dropship
@@ -11,7 +15,7 @@ BuildArch:      x86_64
 Requires:       (nftables >= 1.0.9 or iptables)
 Requires:       polkit
 Requires:       iputils
-%if 0%{?suse_version}
+%if "%{?dropship_distro}" != "fedora"
 Requires:       python3-base
 Requires:       libxkbcommon0
 Requires:       libwayland-client0
@@ -24,7 +28,7 @@ Requires:       Mesa-libGL1
 %else
 Requires:       python3
 Requires:       libxkbcommon
-Requires:       wayland-libs
+Requires:       libwayland-client.so.0()(64bit)
 Requires:       libX11
 Requires:       libXcursor
 Requires:       libXrandr

@@ -16,9 +16,9 @@ package and its dependencies:
 # Debian / Ubuntu
 sudo apt install ./dropship_3.0.6-3_amd64.deb
 # Fedora
-sudo dnf install ./dropship-3.0.6-3.x86_64.rpm
+sudo dnf install ./dropship-3.0.6-3.fc.x86_64.rpm
 # openSUSE (unsigned release RPM; only disables checks for this invocation)
-sudo zypper --no-gpg-checks install ./dropship-3.0.6-3.x86_64.rpm
+sudo zypper --no-gpg-checks install ./dropship-3.0.6-3.suse.x86_64.rpm
 # Arch Linux / Manjaro
 sudo pacman -U ./dropship-3.0.6-3-x86_64.pkg.tar.zst
 ```
@@ -54,7 +54,7 @@ To build an RPM on openSUSE after compiling:
 ```sh
 sudo zypper install rpm-build
 bash packaging/linux/package-rpm.sh
-sudo zypper --no-gpg-checks install ./dist/dropship-3.0.6-3.x86_64.rpm
+sudo zypper --no-gpg-checks install ./dist/dropship-3.0.6-3.suse.x86_64.rpm
 ```
 
 The `dist/` directory also contains the source RPM and a complete project source

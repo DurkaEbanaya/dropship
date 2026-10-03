@@ -15,6 +15,9 @@ tar -C "$root" --exclude=.git --exclude=target --exclude=dist --exclude=__pycach
 install -m755 "$binary" "$temporary/$name/bin/dropship"
 tar -C "$temporary" -czf "$output/$name.tar.gz" "$name"
 cp "$output/$name.tar.gz" "$temporary/rpmbuild/SOURCES/"
-rpmbuild -ba --define "_topdir $temporary/rpmbuild" "$root/packaging/linux/dropship.spec"
+for distro in suse fedora; do
+    rm -rf "$temporary/rpmbuild/BUILD" "$temporary/rpmbuild/BUILDROOT"
+    rpmbuild -ba --define "_topdir $temporary/rpmbuild" --define "dropship_distro $distro" "$root/packaging/linux/dropship.spec"
+done
 cp "$temporary"/rpmbuild/RPMS/x86_64/*.rpm "$temporary"/rpmbuild/SRPMS/*.rpm "$output/"
 printf 'RPMs and corresponding source bundle: %s\n' "$output"
