@@ -1,0 +1,128 @@
+name: Linux packages
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'linux-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  packages:
+    runs-on: ubuntu-24.04
+    container: debian:12
+    steps:
+      - name: Build dependencies on Debian 12 (glibc 2.36)
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y git curl ca-certificates build-essential cmake pkg-config python3 rpm dpkg-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev libwayland-dev libxkbcommon-dev libegl-dev libgl-dev libssl-dev
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dropship
+      - run: cargo test --locked --manifest-path dropship/Cargo.toml
+      - run: cargo build --release --locked --manifest-path dropship/Cargo.toml
+      - name: Build Debian and RPM packages
+        run: |
+          bash packaging/linux/package-rpm.sh
+          bash packaging/linux/package-deb.sh
+          dpkg-deb --info dist/*.deb
+          dpkg-deb --contents dist/*.deb
+          rpm -qpi dist/*.x86_64.rpm
+          rpm -qpl dist/*.x86_64.rpm
+          rpmspec -P packaging/linux/dropship.spec | grep 'Requires: *python3$'
+          dpkg-deb --extract dist/*.deb /tmp/dropship-deb-check
+          test -x /tmp/dropship-deb-check/usr/libexec/dropship-firewall
+          test -f /tmp/dropship-deb-check/usr/lib/systemd/system/dropship-restore.service
+          sha256sum dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb-rpm-source
+          path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  arch:
+    needs: packages
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    steps:
+      - name: Install checkout and Python
+        run: pacman -Sy --noconfirm --needed git python
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-deb-rpm-source
+          path: dist
+      - name: Build Arch package with makepkg
+        run: |
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          runuser -u builder -- bash packaging/linux/package-arch.sh
+          bsdtar -tf dist/*.pkg.tar.zst
+          sha256sum dist/*.pkg.tar.zst
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-arch
+          path: dist/*.pkg.tar.zst
+          if-no-files-found: error
+
+  opensuse:
+    needs: packages
+    runs-on: ubuntu-24.04
+    container: opensuse/tumbleweed
+    steps:
+      - name: Install RPM tools
+        run: zypper --non-interactive --gpg-auto-import-keys install rpm
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-deb-rpm-source
+          path: dist
+      - name: Validate RPM dependencies on openSUSE
+        run: |
+          rpm -qpR dist/dropship-*.x86_64.rpm
+          zypper --non-interactive --no-gpg-checks install --dry-run --no-recommends "$(pwd)/dist/dropship-3.0.6-3.x86_64.rpm"
+
+  fedora:
+    needs: packages
+    runs-on: ubuntu-24.04
+    container: fedora:latest
+    steps:
+      - name: Install RPM tools
+        run: dnf install -y rpm
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-deb-rpm-source
+          path: dist
+      - name: Validate RPM dependencies on Fedora
+        run: |
+          rpm -qpR dist/dropship-*.x86_64.rpm
+          dnf install -y "$(pwd)/dist/dropship-3.0.6-3.x86_64.rpm"
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/linux-v')
+    needs: [packages, arch, opensuse, fedora]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: linux-*
+          merge-multiple: true
+          path: dist
+      - name: Verify release version and generate checksums
+        shell: bash
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("dropship/Cargo.toml","rb"))["package"]["version"])')
+          test "$GITHUB_REF_NAME" = "linux-v${version}-3"
+          (cd dist && sha256sum ./*.deb ./*.rpm ./*.pkg.tar.zst ./*.tar.gz > SHA256SUMS)
+      - name: Publish Linux release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm dist/*.pkg.tar.zst dist/*.tar.gz dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" --verify-tag --title "Dropship Linux ${GITHUB_REF_NAME#linux-v}" --notes-file docs/linux-release.md --latest

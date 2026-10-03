@@ -1,0 +1,16 @@
+post_install() {
+    systemctl daemon-reload >/dev/null 2>&1 || :
+    systemctl enable dropship-restore.service >/dev/null 2>&1 || :
+}
+
+post_upgrade() {
+    systemctl daemon-reload >/dev/null 2>&1 || :
+}
+
+pre_remove() {
+    /bin/sh /usr/share/dropship/clear-installed-rules.sh
+}
+
+post_remove() {
+    systemctl daemon-reload >/dev/null 2>&1 || :
+}

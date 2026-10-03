@@ -1,8 +1,31 @@
-# Native Linux port / openSUSE
+# Native Linux port
 
 This fork of [stowmyy/dropship](https://github.com/stowmyy/dropship) retains the
 original Rust/egui interface and GPL-3.0 license. It runs natively on Linux;
 Overwatch itself can run through Steam/Proton or Battle.net/Wine.
+
+## Binary packages (x86_64)
+
+Download DEB (Debian 12+/Ubuntu 24.04+), RPM (Fedora/openSUSE), or Arch
+(`.pkg.tar.zst`) from the [Linux releases](https://github.com/DurkaEbanaya/dropship/releases).
+Release binaries are built on Debian 12 (glibc 2.36); download `SHA256SUMS`
+to verify integrity. Use your distro's package manager to install the local
+package and its dependencies:
+
+```sh
+# Debian / Ubuntu
+sudo apt install ./dropship_3.0.6-3_amd64.deb
+# Fedora
+sudo dnf install ./dropship-3.0.6-3.x86_64.rpm
+# openSUSE (unsigned release RPM; only disables checks for this invocation)
+sudo zypper --no-gpg-checks install ./dropship-3.0.6-3.x86_64.rpm
+# Arch Linux / Manjaro
+sudo pacman -U ./dropship-3.0.6-3-x86_64.pkg.tar.zst
+```
+
+The complete corresponding sources and source RPM are attached to the release.
+When removing a package, its own firewall rules and boot service are removed;
+upgrading preserves your saved selections and settings.
 
 ## openSUSE Tumbleweed: build and install
 
@@ -31,7 +54,7 @@ To build an RPM on openSUSE after compiling:
 ```sh
 sudo zypper install rpm-build
 bash packaging/linux/package-rpm.sh
-sudo zypper --no-gpg-checks install ./dist/dropship-3.0.6-2.x86_64.rpm
+sudo zypper --no-gpg-checks install ./dist/dropship-3.0.6-3.x86_64.rpm
 ```
 
 The `dist/` directory also contains the source RPM and a complete project source
@@ -39,7 +62,7 @@ bundle with the compiled binary. Build this RPM on the target distribution;
 the binary links against its glibc. Leap and other distributions need their own
 builds and have not been verified with this Tumbleweed binary.
 
-Locally built RPMs are unsigned. Discover/PackageKit on openSUSE can reject them
+RPMs are unsigned. Discover/PackageKit on openSUSE can reject them
 with `Internal error: Installation has been aborted as directed.` Its backend
 log (`/var/log/pk_backend_zypp`) reports `Signature verification failed` and
 `File is unsigned`. Use the terminal command above for this locally built RPM;

@@ -1,0 +1,18 @@
+# Maintainer: Dropship Linux fork
+pkgname=dropship
+pkgver=3.0.6
+pkgrel=3
+pkgdesc='Native Linux Overwatch server selector'
+arch=('x86_64')
+url='https://github.com/DurkaEbanaya/dropship'
+license=('GPL-3.0-only')
+depends=('glibc' 'python' 'polkit' 'iputils' 'nftables' 'libx11' 'libxcursor' 'libxrandr' 'libxi' 'wayland' 'libxkbcommon' 'libglvnd')
+optdepends=('iptables: alternative to nftables (set backend in /etc/dropship/firewall.json)')
+backup=('etc/dropship/firewall.json')
+install=dropship.install
+source=("dropship-linux-${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+    bash "${srcdir}/dropship-linux-${pkgver}/packaging/linux/stage.sh" "${pkgdir}" "${srcdir}/dropship-linux-${pkgver}/bin/dropship"
+}

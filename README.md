@@ -5,8 +5,8 @@ Native Linux port of [stowmyy/dropship](https://github.com/stowmyy/dropship),
 with Wayland/X11, Steam/Proton and Wine process detection, and per-user
 nftables and iptables/ip6tables backends.
 
-**[Linux build, install and usage instructions](docs/linux.md)** — includes
-openSUSE Tumbleweed dependencies, an installer, RPM packaging and firewall tests.
+**[Linux DEB/RPM/Arch packages, build and usage instructions](docs/linux.md)** —
+includes release downloads, openSUSE dependencies and firewall tests.
 Linux blocks selected server networks for the user's UDP game traffic rather
 than filtering by Windows executable path. Start the Linux binary directly.
 
