@@ -1,9 +1,9 @@
 Name:           dropship
 Version:        3.0.6
 %if "%{?dropship_distro}" == "fedora"
-Release:        3.fc
+Release:        4.fc
 %else
-Release:        3.suse
+Release:        4.suse
 %endif
 Summary:        Native Linux Overwatch server selector
 License:        GPL-3.0-only

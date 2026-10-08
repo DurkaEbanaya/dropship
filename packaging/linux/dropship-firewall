@@ -18,15 +18,18 @@ IPTABLES = {4: "/usr/sbin/iptables", 6: "/usr/sbin/ip6tables"}
 RESTORE = {4: "/usr/sbin/iptables-restore", 6: "/usr/sbin/ip6tables-restore"}
 CONFIG = Path("/etc/dropship/firewall.json")
 STATE = Path("/var/lib/dropship")
+TERMINAL_STATE = Path("/var/lib/dropshit")
 MAX_LINE = 262144
 MAX_NETWORKS = 4096
 
 
 def validate_request(request):
-    if not isinstance(request, dict) or set(request) != {"networks", "persistent"}:
+    if not isinstance(request, dict) or set(request) not in ({"networks", "persistent"}, {"networks", "persistent", "disable_all"}):
         raise ValueError("expected only networks and persistent")
     if type(request["persistent"]) is not bool:
         raise ValueError("persistent must be a boolean")
+    if "disable_all" in request and (type(request["disable_all"]) is not bool or (request["disable_all"] and request["networks"] != [])):
+        raise ValueError("disable_all requires a boolean and an empty network list")
     raw = request["networks"]
     if not isinstance(raw, list) or len(raw) > MAX_NETWORKS:
         raise ValueError("invalid network list size")
@@ -221,6 +224,56 @@ def clear_rules(uid):
         (STATE / f"{uid}.{suffix}").unlink(missing_ok=True)
 
 
+def clear_terminal_rules(uid):
+    """Explicit GUI Disable also retires the calling user's old terminal filter.
+
+    Fixed table/chain names only. Remove state after successful firewall cleanup
+    so an enabled terminal restore service cannot resurrect the policy.
+    """
+    validate_uid(uid)
+    marker = TERMINAL_STATE / f"{uid}.json"
+    lock_path = TERMINAL_STATE / f"{uid}.lock"
+    held = lock_path.open("a") if TERMINAL_STATE.exists() else None
+    try:
+        if held:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        saved_backend = json.loads(marker.read_text()).get("backend") if marker.exists() else None
+        if os.access(NFT, os.X_OK):
+            text = "".join(f"destroy table inet {name}_{uid}\n" for name in
+                           ("dropshit", "dropshit_gen1_only", "dropshit_gen1_test"))
+            result = subprocess.run([NFT, "-f", "-"], input=text, text=True, capture_output=True, timeout=15)
+            if result.returncode:
+                raise RuntimeError(result.stderr.strip() or "cannot clear terminal nftables rules")
+        elif saved_backend == "nftables":
+            raise RuntimeError("nftables is required to clear saved terminal rules")
+        for version, tool in IPTABLES.items():
+            if not os.access(tool, os.X_OK):
+                if saved_backend == "iptables":
+                    raise RuntimeError("iptables/ip6tables is required to clear terminal rules")
+                continue
+            chain = f"DSHT_{uid}"
+            output = subprocess.run([tool, "--wait", "10", "-S", "OUTPUT"], text=True, capture_output=True, timeout=15)
+            if output.returncode:
+                if saved_backend == "iptables":
+                    raise RuntimeError(output.stderr.strip() or "cannot inspect terminal iptables OUTPUT")
+                continue  # unrelated installed legacy tools may lack kernel modules
+            result = subprocess.run([tool, "--wait", "10", "-S", chain], text=True, capture_output=True, timeout=15)
+            if result.returncode == 1:
+                continue
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip() or "cannot inspect terminal chain")
+            for line in output.stdout.splitlines():
+                words = line.split()
+                if len(words) >= 4 and words[:2] == ["-A", "OUTPUT"] and words[-2:] == ["-j", chain]:
+                    subprocess.run([tool, "--wait", "10", "-D", *words[1:]], check=True, capture_output=True, timeout=15)
+            for operation in ("-F", "-X"):
+                subprocess.run([tool, "--wait", "10", operation, chain], check=True, capture_output=True, timeout=15)
+        marker.unlink(missing_ok=True)
+    finally:
+        if held:
+            held.close()
+
+
 def serve(uid):
     # Serialize helpers for this UID, including EOF cleanup and boot restoration.
     with (STATE / f"{uid}.lock").open("a") as lock:
@@ -241,6 +294,8 @@ def serve(uid):
                 try:
                     request = json.loads(line)
                     networks = validate_request(request)
+                    if request.get("disable_all", False):
+                        clear_terminal_rules(uid)
                     apply_backend(backend, uid, networks)
                     try:
                         if previous_backend != backend:

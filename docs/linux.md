@@ -14,13 +14,13 @@ package and its dependencies:
 
 ```sh
 # Debian / Ubuntu
-sudo apt install ./dropship_3.0.6-3_amd64.deb
+sudo apt install ./dropship_3.0.6-4_amd64.deb
 # Fedora
-sudo dnf install ./dropship-3.0.6-3.fc.x86_64.rpm
+sudo dnf install ./dropship-3.0.6-4.fc.x86_64.rpm
 # openSUSE (unsigned release RPM; only disables checks for this invocation)
-sudo zypper --no-gpg-checks install ./dropship-3.0.6-3.suse.x86_64.rpm
+sudo zypper --no-gpg-checks install ./dropship-3.0.6-4.suse.x86_64.rpm
 # Arch Linux / Manjaro
-sudo pacman -U ./dropship-3.0.6-3-x86_64.pkg.tar.zst
+sudo pacman -U ./dropship-3.0.6-4-x86_64.pkg.tar.zst
 ```
 
 The complete corresponding sources and source RPM are attached to the release.
@@ -54,7 +54,7 @@ To build an RPM on openSUSE after compiling:
 ```sh
 sudo zypper install rpm-build
 bash packaging/linux/package-rpm.sh
-sudo zypper --no-gpg-checks install ./dist/dropship-3.0.6-3.suse.x86_64.rpm
+sudo zypper --no-gpg-checks install ./dist/dropship-3.0.6-4.suse.x86_64.rpm
 ```
 
 The `dist/` directory also contains the source RPM and a complete project source
@@ -77,6 +77,12 @@ After installation, launch `dropship` as your normal user.
 4. Start Overwatch normally in Steam or your Wine launcher.
 5. `disable dropship` removes all blocks for your user, including while the game
    is open. Changes to ordinary selections wait until the game closes.
+
+Explicit Disable always checks through the helper, including an already empty
+selection. It also removes the calling user's retired terminal Dropshit tables
+(`dropshit_UID`, `dropshit_gen1_only_UID`, `dropshit_gen1_test_UID`), `DSHT_UID`
+iptables chains, and `/var/lib/dropshit/UID.json` restore state. Other users and
+unrelated tables are preserved. Closing the GUI alone keeps persistent rules.
 
 Adding an `.exe` is unnecessary on Linux. The application watches process names
 and command-line basenames to recognize `Overwatch.exe` under Wine/Proton.

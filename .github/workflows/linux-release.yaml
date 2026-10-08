@@ -9,6 +9,21 @@ permissions:
   contents: read
 
 jobs:
+  firewall-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y nftables iptables iproute2
+      - run: python3 -m unittest discover -s packaging/linux -p 'test_*.py'
+      - name: Disable regression with both firewall backends
+        run: |
+          for backend in nftables iptables; do
+            sudo unshare --net -- setpriv \
+              --reuid="$(id -u)" --regid="$(id -g)" --clear-groups \
+              --inh-caps=+net_admin --ambient-caps=+net_admin \
+              env XTABLES_LOCKFILE="$RUNNER_TEMP/dropship-xtables.lock" \
+              python3 packaging/linux/test_firewall.py --integration --backend "$backend"
+          done
   packages:
     runs-on: ubuntu-24.04
     container: debian:12
@@ -77,7 +92,11 @@ jobs:
     container: opensuse/tumbleweed
     steps:
       - name: Install RPM tools
-        run: zypper --non-interactive --gpg-auto-import-keys install rpm
+        run: |
+          for repo in /etc/zypp/repos.d/*.repo; do
+            sed -i 's|http://download.opensuse.org/|https://download.opensuse.org/|g' "$repo"
+          done
+          zypper --non-interactive --gpg-auto-import-keys install rpm
       - uses: actions/download-artifact@v4
         with:
           name: linux-deb-rpm-source
@@ -85,7 +104,7 @@ jobs:
       - name: Validate RPM dependencies on openSUSE
         run: |
           rpm -qpR dist/dropship-*.suse.x86_64.rpm
-          zypper --non-interactive --no-gpg-checks install --dry-run --no-recommends "$(pwd)/dist/dropship-3.0.6-3.suse.x86_64.rpm"
+          zypper --non-interactive --no-gpg-checks install --dry-run --no-recommends "$(pwd)/dist/dropship-3.0.6-4.suse.x86_64.rpm"
 
   fedora:
     needs: packages
@@ -101,11 +120,11 @@ jobs:
       - name: Validate RPM dependencies on Fedora
         run: |
           rpm -qpR dist/dropship-*.fc.x86_64.rpm
-          dnf install -y "$(pwd)/dist/dropship-3.0.6-3.fc.x86_64.rpm"
+          dnf install -y "$(pwd)/dist/dropship-3.0.6-4.fc.x86_64.rpm"
 
   release:
     if: startsWith(github.ref, 'refs/tags/linux-v')
-    needs: [packages, arch, opensuse, fedora]
+    needs: [packages, arch, opensuse, fedora, firewall-tests]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -120,7 +139,7 @@ jobs:
         shell: bash
         run: |
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("dropship/Cargo.toml","rb"))["package"]["version"])')
-          test "$GITHUB_REF_NAME" = "linux-v${version}-3"
+          test "$GITHUB_REF_NAME" = "linux-v${version}-4"
           (cd dist && sha256sum ./*.deb ./*.rpm ./*.pkg.tar.zst ./*.tar.gz > SHA256SUMS)
       - name: Publish Linux release
         env:

@@ -1,7 +1,7 @@
 # Maintainer: Dropship Linux fork
 pkgname=dropship
 pkgver=3.0.6
-pkgrel=3
+pkgrel=4
 pkgdesc='Native Linux Overwatch server selector'
 arch=('x86_64')
 url='https://github.com/DurkaEbanaya/dropship'

@@ -22,6 +22,14 @@ loader.exec_module(helper)
 
 
 class ValidationTests(unittest.TestCase):
+    def test_disable_is_explicit_and_cannot_include_blocks(self):
+        self.assertEqual(helper.validate_request({"networks": [], "persistent": True, "disable_all": True}), [])
+        for flag in ["true", 1]:
+            with self.assertRaises(ValueError):
+                helper.validate_request({"networks": [], "persistent": True, "disable_all": flag})
+        with self.assertRaises(ValueError):
+            helper.validate_request({"networks": ["127.0.0.1/32"], "persistent": True, "disable_all": True})
+
     def test_invalid_input_never_becomes_nft_syntax(self):
         for value in ["0.0.0.0/0", "::/0", "1.2.3.4; flush ruleset", "example.com", None]:
             with self.assertRaises(ValueError):
@@ -144,7 +152,9 @@ def integration(backend="nftables", prefix=None, variant="nft"):
     with tempfile.TemporaryDirectory() as temporary:
         helper.STATE = Path(temporary)
         helper.CONFIG = helper.STATE / "config"
-        source = "import runpy,sys,json; from pathlib import Path; m=runpy.run_path(sys.argv[1]); g=m['serve'].__globals__; g['STATE']=Path(sys.argv[2]); g['CONFIG']=g['STATE']/'config'; g['IPTABLES']={int(k):v for k,v in json.loads(sys.argv[4]).items()}; g['RESTORE']={int(k):v for k,v in json.loads(sys.argv[5]).items()}; m['serve'](int(sys.argv[3]))"
+        helper.TERMINAL_STATE = helper.STATE / "terminal"
+        helper.TERMINAL_STATE.mkdir()
+        source = "import runpy,sys,json; from pathlib import Path; m=runpy.run_path(sys.argv[1]); g=m['serve'].__globals__; g['STATE']=Path(sys.argv[2]); g['TERMINAL_STATE']=g['STATE']/'terminal'; g['CONFIG']=g['STATE']/'config'; g['IPTABLES']={int(k):v for k,v in json.loads(sys.argv[4]).items()}; g['RESTORE']={int(k):v for k,v in json.loads(sys.argv[5]).items()}; m['serve'](int(sys.argv[3]))"
 
         def session(persistent, selected=backend):
             helper.CONFIG.write_text(json.dumps({"backend": selected}))
@@ -180,6 +190,35 @@ def integration(backend="nftables", prefix=None, variant="nft"):
             udp(socket.AF_INET, "127.0.0.1", 35000, False)
         helper.clear(uid)
         udp(socket.AF_INET, "127.0.0.1", 35000, False)
+        # GUI Disable must clear an orphan terminal table/state even if its own
+        # selection was already empty, preserving other UIDs and foreign tables.
+        terminal = f"dropshit_{uid}"
+        subprocess.run(nft + ["-f", "-"], input=f"table inet {terminal} {{\n chain output {{\n type filter hook output priority -10; policy accept;\n meta skuid {uid} ip daddr 127.0.0.1 udp dport 35000 reject\n }}\n }}\n", text=True, check=True)
+        subprocess.run(nft + ["add", "table", "inet", f"dropshit_{uid + 1}"], check=True)
+        (helper.TERMINAL_STATE / f"{uid}.json").write_text(json.dumps({"backend": "nftables", "mode": "allowlist", "region": "gen1", "networks": ["34.88.0.0/16"]}))
+        if backend == "iptables":
+            for tool in helper.IPTABLES.values():
+                subprocess.run([tool, "-N", f"DSHT_{uid}"], check=True)
+                subprocess.run([tool, "-A", "OUTPUT", "-p", "udp", "-m", "owner", "--uid-owner", str(uid), "--dport", "12000:64000", "-j", f"DSHT_{uid}"], check=True)
+        udp(socket.AF_INET, "127.0.0.1", 35000, True)
+        helper.CONFIG.write_text(json.dumps({"backend": backend}))
+        child = subprocess.Popen([sys.executable, "-c", source, loader.path, temporary, str(uid), json.dumps(helper.IPTABLES), json.dumps(helper.RESTORE)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        for _ in range(2):
+            child.stdin.write(json.dumps({"networks": [], "persistent": True, "disable_all": True}) + "\n")
+            child.stdin.flush()
+            assert json.loads(child.stdout.readline())["ok"] is True
+        child.stdin.close()
+        assert child.wait(timeout=5) == 0
+        udp(socket.AF_INET, "127.0.0.1", 35000, False)
+        assert not (helper.TERMINAL_STATE / f"{uid}.json").exists()
+        assert not (helper.STATE / f"{uid}.json").exists()
+        for table in [f"dropship_{uid}", terminal]:
+            assert subprocess.run(nft + ["list", "table", "inet", table], capture_output=True).returncode != 0
+        for table in ["unrelated_test", f"dropshit_{uid + 1}"]:
+            assert subprocess.run(nft + ["list", "table", "inet", table], capture_output=True).returncode == 0
+        if backend == "iptables":
+            for tool in helper.IPTABLES.values():
+                assert subprocess.run([tool, "-S", f"DSHT_{uid}"], capture_output=True).returncode == 1
     other_uid = "other UID checked" if backend == "nftables" or mapped_other_uid else "other UID skipped (unmapped)"
     print(f"PASS ({backend}/{variant}): IPv4/IPv6 UDP blocks, port boundaries, TCP unaffected, {other_uid}, replacement, foreign rules preserved, JSON protocol, invalid input rollback, dynamic EOF cleanup, persistent restore and backend migration")
 

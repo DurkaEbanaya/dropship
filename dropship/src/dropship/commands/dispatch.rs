@@ -169,6 +169,7 @@ async fn background_task(
             Command::ApplyFirewallConfig {
                 blocked_servers,
                 already_known_paths,
+                disable_all,
             } => {
                 // FIXME probably should have a rc so it can't conflict state and infinitely think it's loading
                 // if the queue is drained out of order :<
@@ -180,6 +181,17 @@ async fn background_task(
 
                     match &mut *guard {
                         Some(wfp_connection) => {
+                            #[cfg(target_os = "linux")]
+                            if disable_all {
+                                if let Err(e) = wfp_connection.disable_all() {
+                                    log::error!("Disable failed: {e}");
+                                    let _ =
+                                        events_tx.send(Event::DropshipLoadingStateChange(false));
+                                    return;
+                                }
+                            }
+                            #[cfg(not(target_os = "linux"))]
+                            let _ = disable_all;
                             match firewall::apply_blocked_ips(
                                 wfp_connection,
                                 &blocked_servers,

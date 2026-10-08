@@ -13,7 +13,7 @@ mkdir -p "$stage/DEBIAN"
 bash "$root/packaging/linux/stage.sh" "$stage" "$binary"
 cat > "$stage/DEBIAN/control" <<EOF
 Package: dropship
-Version: ${version}-3
+Version: ${version}-4
 Section: games
 Priority: optional
 Architecture: amd64
@@ -27,4 +27,4 @@ install -m755 "$root/packaging/linux/deb-postinst" "$stage/DEBIAN/postinst"
 install -m755 "$root/packaging/linux/deb-prerm" "$stage/DEBIAN/prerm"
 install -m755 "$root/packaging/linux/deb-postrm" "$stage/DEBIAN/postrm"
 printf '/etc/dropship/firewall.json\n' > "$stage/DEBIAN/conffiles"
-dpkg-deb --build --root-owner-group "$stage" "$output/dropship_${version}-3_amd64.deb"
+dpkg-deb --build --root-owner-group "$stage" "$output/dropship_${version}-4_amd64.deb"

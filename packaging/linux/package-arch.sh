@@ -28,4 +28,4 @@ else
     printf 'Arch makepkg or Docker is required.\n' >&2
     exit 1
 fi
-cp "$temporary/dropship-$version-3-x86_64.pkg.tar.zst" "$output/"
+cp "$temporary/dropship-$version-4-x86_64.pkg.tar.zst" "$output/"

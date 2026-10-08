@@ -31,6 +31,7 @@ pub enum Command {
     ApplyFirewallConfig {
         blocked_servers: HashSet<api::KnownServer>,
         already_known_paths: HashSet<PathBuf>,
+        disable_all: bool,
     },
 
     // ping

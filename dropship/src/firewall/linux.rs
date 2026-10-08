@@ -56,8 +56,13 @@ impl Helper {
         })
     }
 
-    fn apply(&mut self, networks: &[String], persistent: bool) -> io::Result<()> {
-        let request = serde_json::json!({ "networks": networks, "persistent": persistent });
+    fn apply(
+        &mut self,
+        networks: &[String],
+        persistent: bool,
+        disable_all: bool,
+    ) -> io::Result<()> {
+        let request = serde_json::json!({ "networks": networks, "persistent": persistent, "disable_all": disable_all });
         let input = self.input.as_mut().unwrap();
         writeln!(input, "{request}")?;
         input.flush()?;
@@ -107,7 +112,15 @@ impl Connection {
         })
     }
 
+    pub fn disable_all(&mut self) -> io::Result<()> {
+        self.apply_request(Vec::new(), true)
+    }
+
     fn apply(&mut self, networks: Vec<String>) -> io::Result<()> {
+        self.apply_request(networks, false)
+    }
+
+    fn apply_request(&mut self, networks: Vec<String>, disable_all: bool) -> io::Result<()> {
         if self
             .helper
             .as_mut()
@@ -116,12 +129,12 @@ impl Connection {
             self.helper = None;
             self.last_applied = None;
         }
-        if self.last_applied.as_ref() == Some(&networks) && self.helper.is_some() {
+        if !disable_all && self.last_applied.as_ref() == Some(&networks) && self.helper.is_some() {
             return Ok(());
         }
         // No authorization dialog on a fresh installation with nothing to block.
         // Saved state is written by the helper, never trusted as firewall commands.
-        if networks.is_empty() && self.helper.is_none() {
+        if !disable_all && networks.is_empty() && self.helper.is_none() {
             let uid = Command::new("/usr/bin/id").arg("-u").output()?;
             let uid = String::from_utf8_lossy(&uid.stdout)
                 .trim()
@@ -141,7 +154,7 @@ impl Connection {
             .helper
             .as_mut()
             .unwrap()
-            .apply(&networks, self.persistent);
+            .apply(&networks, self.persistent, disable_all);
         if result.is_err() {
             // A rejected transaction keeps the last working rules. Keep a live
             // dynamic helper too, or dropping it would clear those rules on EOF.

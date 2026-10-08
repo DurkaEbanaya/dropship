@@ -826,6 +826,7 @@ impl TemplateApp {
         known_servers: &[KnownServer],
         already_known_paths: &Option<HashSet<PathBuf>>,
         commands_tx: &UnboundedSender<dropship::Command>,
+        disable_all: bool,
     ) {
         let blocked_servers = known_servers
             .iter()
@@ -838,6 +839,7 @@ impl TemplateApp {
         let _ = commands_tx.send(dropship::Command::ApplyFirewallConfig {
             blocked_servers,
             already_known_paths,
+            disable_all,
         });
     }
 
@@ -850,6 +852,7 @@ impl TemplateApp {
             self.known_servers(),
             &self.config.known_paths,
             &self.commands_tx,
+            false,
         );
     }
 
@@ -864,12 +867,14 @@ impl TemplateApp {
 
     pub fn force_unblock_all(&mut self) {
         self.config.desired_blocked_servers = ServerSelection::none();
+        self.pending_firewall_sync_when_game_is_closed = false;
 
         Self::_apply_blocked_servers_to_firewall(
             &self.config.desired_blocked_servers,
             self.known_servers(),
             &self.config.known_paths,
             &self.commands_tx,
+            true,
         );
     }
 
